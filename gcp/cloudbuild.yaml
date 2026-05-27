@@ -1,0 +1,58 @@
+# Google Cloud Build — сборка Docker образа matterbridge.
+# Триггер: push в ветку main (настраивается в matterbridge.tf / terragruntcore).
+#
+# Публикует образ в Artifact Registry:
+#   asia-southeast3-docker.pkg.dev/gcloud-production-1/chat/matterbridge:${SHORT_SHA}
+#   asia-southeast3-docker.pkg.dev/gcloud-production-1/chat/matterbridge:latest
+#
+# Переопределяемые переменные (задаются в триггере через substitutions):
+#   _REGION — регион AR (default: asia-southeast3)
+#   _REPO   — репозиторий AR (default: chat)
+
+substitutions:
+  _REGION: asia-southeast3
+  _REPO: chat
+
+steps:
+  # 1. Сборка с inline-cache от предыдущего latest (ускоряет повторные сборки)
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/matterbridge:latest
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
+      - --tag
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/matterbridge:${SHORT_SHA}
+      - --tag
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/matterbridge:latest
+      - .
+    env:
+      - DOCKER_BUILDKIT=1
+
+  # 2. Push тега с SHA коммита
+  - name: gcr.io/cloud-builders/docker
+    id: push-sha
+    waitFor: [build]
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/matterbridge:${SHORT_SHA}
+
+  # 3. Push тега latest
+  - name: gcr.io/cloud-builders/docker
+    id: push-latest
+    waitFor: [build]
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/matterbridge:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/matterbridge:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/matterbridge:latest
+
+options:
+  machineType: E2_MEDIUM
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1800s
